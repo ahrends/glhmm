@@ -383,7 +383,7 @@ def load_stability_results(save_dir):
     Handles two cases automatically:
     - `summary_results.pkl` present -> loads directly (fast path).
     - Only individual `hmm_K*_rep*.pkl` files -> rebuilds the summary from them
-      by recomputing Gamma similarity between repetition 0 and every subsequent repetition.
+      by recomputing all N*(N-1)/2 pairwise Gamma similarities across repetitions.
 
     Parameters:
     --------------
@@ -395,7 +395,7 @@ def load_stability_results(save_dir):
     results (dict):
         Dictionary with K values as keys, each containing:
         - `'FE'`: list of free energy arrays, one per repetition.
-        - `'similarity_scores'`: list of Gamma similarity floats (rep 0 vs rep i).
+        - `'similarity_scores'`: list of Gamma similarity floats (all pairwise comparisons).
     state_range (list of int):
         Sorted list of K values found in the directory.
     """
@@ -433,18 +433,18 @@ def load_stability_results(save_dir):
         for K in state_range:
             reps_sorted = sorted(saved[K], key=lambda x: x[0])
             print(f'  K={K}: loading {len(reps_sorted)} repetitions...', end=' ')
-            Gamma_ref = None
+            gammas = []
             for rep, fpath in reps_sorted:
                 with open(fpath, 'rb') as f:
                     d = pickle.load(f)
                 results[K]['FE'].append(d['FE'])
-                if Gamma_ref is None:
-                    Gamma_ref = d['Gamma']
-                else:
-                    sim, _, _ = get_gamma_similarity(Gamma_ref, d['Gamma'])
+                gammas.append(d['Gamma'])
+            for i in range(len(gammas)):
+                for j in range(i + 1, len(gammas)):
+                    sim, _, _ = get_gamma_similarity(gammas[i], gammas[j])
                     results[K]['similarity_scores'].append(sim)
-            del Gamma_ref
-            print('done')
+            del gammas
+            print(f'done  ({len(results[K]["similarity_scores"])} pairs)')
 
         with open(summary_path, 'wb') as f:
             pickle.dump(results, f)
@@ -468,9 +468,9 @@ def run_stability_training(Y, indices, state_range, n_repeats, save_dir,
     Train HMMs across a range of K values to assess solution stability.
 
     For each K and random repetition: initialises an HMM; trains with full-batch EM
-    until convergence; saves the model to disk; and computes Gamma similarity between
-    repetition 0 (reference) and all subsequent repetitions to measure how
-    reproducible the state solution is across random initialisations.
+    until convergence; saves the model to disk; then computes all N*(N-1)/2 pairwise
+    Gamma similarities across repetitions to measure how reproducible the state
+    solution is across random initialisations.
 
     Parameters:
     --------------
@@ -504,7 +504,7 @@ def run_stability_training(Y, indices, state_range, n_repeats, save_dir,
     results (dict):
         Dictionary with K values as keys, each containing:
         - `'FE'`: list of free energy arrays, one per repetition.
-        - `'similarity_scores'`: list of Gamma similarity floats (rep 0 vs rep i).
+        - `'similarity_scores'`: list of Gamma similarity floats (all pairwise comparisons).
     """
 
 
@@ -517,7 +517,7 @@ def run_stability_training(Y, indices, state_range, n_repeats, save_dir,
 
     for K in state_range:
         print(f'Training HMM with {K} states ({n_repeats} repetitions)...')
-        Gamma_ref = None
+        gammas = []
 
         for repeat in range(n_repeats):
             np.random.seed(repeat)
@@ -536,18 +536,18 @@ def run_stability_training(Y, indices, state_range, n_repeats, save_dir,
                 pickle.dump({'hmm': hmm, 'Gamma': Gamma1, 'FE': FE1}, f)
 
             results[K]['FE'].append(FE1)
-
-            if repeat == 0:
-                Gamma_ref = Gamma1
-            else:
-                sim, _, _ = get_gamma_similarity(Gamma_ref, Gamma1)
-                results[K]['similarity_scores'].append(sim)
-                del Gamma1
-
+            gammas.append(Gamma1)
             del hmm
             print(f'  K={K}  rep={repeat + 1}/{n_repeats}  FE={FE1[-1]:.2f}', flush=True)
 
-        del Gamma_ref
+        # All N*(N-1)/2 pairwise similarities — more robust than single-reference
+        for i in range(len(gammas)):
+            for j in range(i + 1, len(gammas)):
+                sim, _, _ = get_gamma_similarity(gammas[i], gammas[j])
+                results[K]['similarity_scores'].append(sim)
+        n_pairs = len(results[K]['similarity_scores'])
+        print(f'  K={K}  {n_pairs} pairwise similarities  mean={np.mean(results[K]["similarity_scores"]):.4f}', flush=True)
+        del gammas
 
     with open(save_dir / 'summary_results.pkl', 'wb') as f:
         pickle.dump(results, f)
@@ -564,8 +564,8 @@ def run_stability_training_stochastic(files, state_range, n_repeats, save_dir,
 
     For each K and random repetition: initialises an HMM; trains with stochastic
     mini-batch EM; calls ``hmm.decode()`` to obtain the Gamma time series (stochastic
-    training returns empty Gamma by design); saves the model to disk; and computes
-    Gamma similarity between repetition 0 (reference) and all subsequent repetitions.
+    training returns empty Gamma by design); saves the model to disk; then computes
+    all N*(N-1)/2 pairwise Gamma similarities across repetitions.
 
     Use this function when your dataset is too large to hold in RAM. Data must be
     split into one ``.npy`` or ``.npz`` file per subject on disk (see
@@ -602,7 +602,7 @@ def run_stability_training_stochastic(files, state_range, n_repeats, save_dir,
     results (dict):
         Dictionary with K values as keys, each containing:
         - `'FE'`: list of free energy arrays, one per repetition.
-        - `'similarity_scores'`: list of Gamma similarity floats (rep 0 vs rep i).
+        - `'similarity_scores'`: list of Gamma similarity floats (all pairwise comparisons).
     """
 
     _default_options = {
@@ -630,7 +630,7 @@ def run_stability_training_stochastic(files, state_range, n_repeats, save_dir,
 
     for K in state_range:
         print(f'Training HMM with {K} states ({n_repeats} repetitions)...')
-        Gamma_ref = None
+        gammas = []
 
         for repeat in range(n_repeats):
             np.random.seed(repeat)
@@ -650,18 +650,18 @@ def run_stability_training_stochastic(files, state_range, n_repeats, save_dir,
                 pickle.dump({'hmm': hmm, 'Gamma': Gamma1, 'FE': FE1}, f)
 
             results[K]['FE'].append(FE1)
-
-            if repeat == 0:
-                Gamma_ref = Gamma1
-            else:
-                sim, _, _ = get_gamma_similarity(Gamma_ref, Gamma1)
-                results[K]['similarity_scores'].append(sim)
-                del Gamma1
-
+            gammas.append(Gamma1)
             del hmm
             print(f'  K={K}  rep={repeat + 1}/{n_repeats}  FE={FE1[-1]:.2f}', flush=True)
 
-        del Gamma_ref
+        # All N*(N-1)/2 pairwise similarities — more robust than single-reference
+        for i in range(len(gammas)):
+            for j in range(i + 1, len(gammas)):
+                sim, _, _ = get_gamma_similarity(gammas[i], gammas[j])
+                results[K]['similarity_scores'].append(sim)
+        n_pairs = len(results[K]['similarity_scores'])
+        print(f'  K={K}  {n_pairs} pairwise similarities  mean={np.mean(results[K]["similarity_scores"]):.4f}', flush=True)
+        del gammas
 
     with open(save_dir / 'summary_results.pkl', 'wb') as f:
         pickle.dump(results, f)
