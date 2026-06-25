@@ -447,6 +447,8 @@ def preprocess_data(data = None,indices = None,
             X = load_X(INPUT_FILE_PATH)
             T = X.shape[0]
             indices = np.array([[0, T]])
+            if X.ndim < 2:
+                X = X.reshape(X.shape[0], -1)
             p = X.shape[1]
             if log['p'] is None:
                 log['p'] = int(p)
