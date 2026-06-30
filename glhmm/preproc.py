@@ -22,7 +22,7 @@ from .auxiliary import make_indices_from_T
 
 # import auxiliary
 
-def apply_pca(X,d, whitening=False, center=False, exact=True):
+def apply_pca(X,d, exact=True, whitening=False, center=False):
     """Applies PCA to the input data X.
 
     Parameters:
@@ -33,12 +33,12 @@ def apply_pca(X,d, whitening=False, center=False, exact=True):
         If int, the number of components to keep.
         If float, the percentage of explained variance to keep.
         If array-like of shape (n_parcels, n_components), the transformation matrix.
+    exact : bool, default=True
+        Whether to use full SVD solver for PCA
     whitening : bool, default=False
         Whether to apply whitening of PCs
     center : bool, default=False
         Whether to center signal
-    exact : bool, default=True
-        Whether to use full SVD solver for PCA.
 
     Returns:
     --------
