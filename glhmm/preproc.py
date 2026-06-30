@@ -22,7 +22,7 @@ from .auxiliary import make_indices_from_T
 
 # import auxiliary
 
-def apply_pca(X,d,whitening=False, exact=True):
+def apply_pca(X,d, whitening=False, center=False, exact=True):
     """Applies PCA to the input data X.
 
     Parameters:
@@ -33,6 +33,10 @@ def apply_pca(X,d,whitening=False, exact=True):
         If int, the number of components to keep.
         If float, the percentage of explained variance to keep.
         If array-like of shape (n_parcels, n_components), the transformation matrix.
+    whitening : bool, default=False
+        Whether to apply whitening of PCs
+    center : bool, default=False
+        Whether to center signal
     exact : bool, default=True
         Whether to use full SVD solver for PCA.
 
@@ -44,9 +48,9 @@ def apply_pca(X,d,whitening=False, exact=True):
         The estimated PCA model
     """
     if type(d) is np.ndarray:
-        X -= np.mean(X,axis=0)
+        if center:
+            X -= np.mean(X,axis=0)
         X = X @ d
-        whitening = True
         if whitening: X /= np.std(X,axis=0)
         return X, None
 
@@ -307,6 +311,8 @@ def preprocess_data(data = None,indices = None,
         onphase=False, # True / False
         pca=None, # Number of principal components, % explained variance, or None
         exact_pca=True, # related to how to run PCA
+        whitening=False,
+        center=False,
         ica=None, # Number of independent components, % explained variance, or None (if specified, pca is not used)
         ica_algorithm='parallel', # related to how to run PCA
         post_standardise=None, # True / False, standardise the ICA/PCA components?
@@ -350,6 +356,10 @@ def preprocess_data(data = None,indices = None,
         If array, treated as precomputed PCA matrix.
     exact_pca : bool, default=True
         Whether to use full SVD in PCA (only relevant for in-memory mode).
+    whitening : bool, default=False
+        Whether to apply whitening of PCs
+    center : bool, default=False
+        Whether to center signal before applying PCA
     ica : int or float or None, default=None
         ICA dimensionality reduction. If int, number of components. If float, proportion of variance to retain.
     ica_algorithm : str, default='parallel'
@@ -694,12 +704,12 @@ def preprocess_data(data = None,indices = None,
     elif lags is not None:
         data, indices = build_data_tde(data, indices, lags)
 
-    if (pca != None) and (ica is None):
-        data, pcamodel = apply_pca(data,pca,exact_pca)
+    if (pca is not None) and (ica is None):
+        data, pcamodel = apply_pca(data,pca,exact_pca, whitening=whitening, center=center)
         p = data.shape[1]
         log["pcamodel"] = pcamodel
 
-    if ica != None:
+    if ica is not None:
         data, icamodel = apply_ica(data,ica,ica_algorithm)
         p = data.shape[1]
         log["icamodel"] = icamodel       
@@ -708,7 +718,7 @@ def preprocess_data(data = None,indices = None,
         if ica: post_standardise = True
         else: post_standardise = False
 
-    if (pca or ica) and post_standardise:
+    if (pca is not None or ica is not None) and post_standardise:
         for j in range(N):
             t = np.arange(indices[j,0],indices[j,1]) 
             data[t,:] -= np.mean(data[t,:],axis=0)
